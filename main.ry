@@ -1,0 +1,178 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import requests
+import json
+import os
+
+
+class CurrencyConverter:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Currency Converter")
+        self.root.geometry("600x500")
+
+        # Замените на ваш API‑ключ с exchangerate-api.com
+        self.api_key = "YOUR_API_KEY_HERE"
+
+        # Загрузка истории
+        self.history = self.load_history()
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        # Выбор валюты FROM
+        ttk.Label(self.root, text="Из валюты:").grid(row=0, column=0, padx=10, pady=10)
+        self.from_currency = ttk.Combobox(self.root, values=self.get_currencies())
+        self.from_currency.grid(row=0, column=1, padx=10, pady=10)
+
+        # Выбор валюты TO
+        ttk.Label(self.root, text="В валюту:").grid(row=1, column=0, padx=10, pady=10)
+        self.to_currency = ttk.Combobox(self.root, values=self.get_currencies())
+        self.to_currency.grid(row=1, column=1, padx=10, pady=10)
+
+        # Поле ввода суммы
+        ttk.Label(self.root, text="Сумма:").grid(row=2, column=0, padx=10, pady=10)
+        self.amount_entry = ttk.Entry(self.root)
+        self.amount_entry.grid(row=2, column=1, padx=10, pady=10)
+
+        # Кнопка конвертации
+        self.convert_btn = ttk.Button(self.root, text="Конвертировать", command=self.convert)
+        self.convert_btn.grid(row=3, column=0, columnspan=2, pady=20)
+
+        # Таблица истории
+        columns = ("From", "To", "Amount", "Result")
+        self.history_tree = ttk.Treeview(self.root, columns=columns, show="headings", height=8)
+
+        for col in columns:
+            self.history_tree.heading(col, text=col)
+            self.history_tree.column(col, width=120)
+
+        self.history_tree.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+
+        # Полосы прокрутки для таблицы
+        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.history_tree.yview)
+        scrollbar.grid(row=4, column=2, sticky="ns")
+        self.history_tree.configure(yscrollcommand=scrollbar.set)
+
+        # Обновление таблицы истории
+        self.update_history_table()
+
+    def get_currencies(self):
+        """Возвращает список популярных валют"""
+        return ["USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "RUB", "UAH"]
+
+    def convert(self):
+        try:
+            # Проверка ввода суммы
+            amount_str = self.amount_entry.get().strip()
+            if not amount_str:
+                messagebox.showerror("Ошибка", "Введите сумму для конвертации")
+                return
+
+            amount = float(amount_str)
+            if amount <= 0:
+                messagebox.showerror("Ошибка", "Сумма должна быть положительным числом")
+                return
+
+            from_curr = self.from_currency.get()
+            to_curr = self.to_currency.get()
+
+            if not from_curr or not to_curr:
+                messagebox.showerror("Ошибка", "Выберите валюты для конвертации")
+                return
+
+            # Получение курса через API
+            rate = self.get_exchange_rate(from_curr, to_curr)
+            if rate is None:
+                return
+
+            result = amount * rate
+
+            # Добавление в историю
+            self.history.append({
+                "from": from_curr,
+                "to": to_curr,
+                "amount": amount,
+                "result": result
+            })
+            self.save_history()
+            self.update_history_table()
+
+            messagebox.showinfo(
+                "Результат конвертации",
+                f"{amount:.2f} {from_curr} = {result:.2f} {to_curr}"
+            )
+
+        except ValueError:
+            messagebox.showerror("Ошибка", "Введите корректную сумму (число)")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Непредвиденная ошибка: {str(e)}")
+
+    def get_exchange_rate(self, from_curr, to_curr):
+        """Получает курс обмена через API"""
+        try:
+            url = f"https://api.exchangerate-api.com/v4/latest/{from_curr}"
+
+            response = requests.get(url)
+            response.raise_for_status()  # Проверка на HTTP-ошибки
+
+            data = response.json()
+
+            if "rates" not in data:
+                messagebox.showerror("Ошибка API", "Неверный формат ответа от API")
+                return None
+
+            if to_curr not in data["rates"]:
+                messagebox.showerror("Ошибка", f"Валюта {to_curr} не найдена в API")
+                return None
+
+            return data["rates"][to_curr]
+
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("Ошибка сети", f"Проблема с подключением к API: {e}")
+            return None
+        except json.JSONDecodeError:
+            messagebox.showerror("Ошибка API", "Ошибка при обработке ответа от API")
+            return None
+        except KeyError:
+            messagebox.showerror("Ошибка API", "Ответ API не содержит ожидаемых данных")
+            return None
+
+    def save_history(self):
+        """Сохраняет историю в JSON-файл"""
+        try:
+            with open("history.json", "w", encoding="utf-8") as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except IOError as e:
+            messagebox.showerror("Ошибка сохранения", f"Не удалось сохранить историю: {e}")
+
+    def load_history(self):
+        """Загружает историю из JSON-файла"""
+        if os.path.exists("history.json"):
+            try:
+                with open("history.json", "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (IOError, json.JSONDecodeError) as e:
+                messagebox.showwarning("Предупреждение", f"Не удалось загрузить историю: {e}. Создаётся новая история.")
+                return []
+        return []
+
+    def update_history_table(self):
+        """Обновляет отображение истории в таблице"""
+        # Очистка таблицы
+        for item in self.history_tree.get_children():
+            self.history_tree.delete(item)
+
+        # Добавление записей в обратном порядке (последние сверху)
+        for record in reversed(self.history[-20:]):  # Показываем последние 20 записей
+            self.history_tree.insert("", "end", values=(
+                record["from"],
+                record["to"],
+                f"{record['amount']:.2f}",
+                f"{record['result']:.2f}"
+            ))
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CurrencyConverter(root)
+    root.mainloop()

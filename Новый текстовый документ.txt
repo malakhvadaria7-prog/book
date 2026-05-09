@@ -1,132 +1,205 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-import requests
+from tkinter import ttk, messagebox, simpledialog
+import random
 import json
 import os
 
-class CurrencyConverter:
+class RandomTaskGenerator:
     def __init__(self, root):
         self.root = root
-        self.root.title("Currency Converter")
+        self.root.title("Random Task Generator")
         self.root.geometry("600x500")
 
-        # Переменная для API-ключа
-        self.api_key = "YOUR_API_KEY"  # Замените на ваш ключ
-
-        # Загрузка истории
-        self.history = self.load_history()
+        # Загрузка данных
+        self.tasks_data = self.load_data()
+        self.history = self.tasks_data.get("history", [])
 
         self.setup_ui()
 
     def setup_ui(self):
-        # Выбор валюты FROM
-        ttk.Label(self.root, text="Из валюты:").grid(row=0, column=0, padx=10, pady=10)
-        self.from_currency = ttk.Combobox(self.root, values=self.get_currencies())
-        self.from_currency.grid(row=0, column=1, padx=10, pady=10)
+        # Заголовок
+        ttk.Label(self.root, text="Генератор случайных задач", font=("Arial", 16)).pack(pady=10)
 
-        # Выбор валюты TO
-        ttk.Label(self.root, text="В валюту:").grid(row=1, column=0, padx=10, pady=10)
-        self.to_currency = ttk.Combobox(self.root, values=self.get_currencies())
-        self.to_currency.grid(row=1, column=1, padx=10, pady=10)
+        # Кнопка генерации задачи
+        self.generate_btn = ttk.Button(self.root, text="Сгенерировать задачу", command=self.generate_task)
+        self.generate_btn.pack(pady=5)
 
-        # Поле ввода суммы
-        ttk.Label(self.root, text="Сумма:").grid(row=2, column=0, padx=10, pady=10)
-        self.amount_entry = ttk.Entry(self.root)
-        self.amount_entry.grid(row=2, column=1, padx=10, pady=10)
+        # Поле отображения текущей задачи
+        ttk.Label(self.root, text="Текущая задача:").pack(pady=(10, 5))
+        self.current_task_label = ttk.Label(self.root, text="Нажмите кнопку для генерации", wraplength=500)
+        self.current_task_label.pack(pady=5)
 
-        # Кнопка конвертации
-        self.convert_btn = ttk.Button(self.root, text="Конвертировать", command=self.convert)
-        self.convert_btn.grid(row=3, column=0, columnspan=2, pady=20)
+        # Фильтр по типу
+        ttk.Label(self.root, text="Фильтр по типу:").pack(pady=(15, 5))
+        self.filter_var = tk.StringVar(value="Все")
+        filter_options = ["Все", "Учёба", "Спорт", "Работа"]
+        self.filter_combo = ttk.Combobox(self.root, textvariable=self.filter_var, values=filter_options, state="readonly")
+        self.filter_combo.pack(pady=5)
+        self.filter_combo.bind("<<ComboboxSelected>>", self.apply_filter)
 
-        # Таблица истории
-        self.history_tree = ttk.Treeview(self.root, columns=("From", "To", "Amount", "Result"), show="headings")
-        self.history_tree.heading("From", text="Из")
-        self.history_tree.heading("To", text="В")
-        self.history_tree.heading("Amount", text="Сумма")
-        self.history_tree.heading("Result", text="Результат")
-        self.history_tree.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        # Список истории
+        ttk.Label(self.root, text="История задач:").pack(pady=(15, 5))
 
-        # Обновление таблицы истории
-        self.update_history_table()
+        # Фрейм для списка и скроллбара
+        list_frame = ttk.Frame(self.root)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-    def get_currencies(self):
-        # Список популярных валют
-        return ["USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "RUB"]
+        self.history_listbox = tk.Listbox(list_frame, height=10, width=60)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.history_listbox.yview)
+        self.history_listbox.configure(yscrollcommand=scrollbar.set)
 
-    def convert(self):
-        try:
-            # Проверка ввода
-            amount = float(self.amount_entry.get())
-            if amount <= 0:
-                messagebox.showerror("Ошибка", "Сумма должна быть положительным числом")
-                return
+        self.history_listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-            from_curr = self.from_currency.get()
-            to_curr = self.to_currency.get()
+        # Кнопки управления
+        button_frame = ttk.Frame(self.root)
+        button_frame.pack(pady=10)
 
-            if not from_curr or not to_curr:
-                messagebox.showerror("Ошибка", "Выберите валюты")
-                return
+        ttk.Button(button_frame, text="Добавить задачу", command=self.add_task).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Очистить историю", command=self.clear_history).pack(side=tk.LEFT, padx=5)
 
-            # Получение курса через API
-            rate = self.get_exchange_rate(from_curr, to_curr)
-            if rate is None:
-                return
+        # Обновление списка истории
+        self.update_history_list()
 
-            result = amount * rate
+    def load_data(self):
+        """Загружает данные из JSON-файла"""
+        if os.path.exists("tasks.json"):
+            try:
+                with open("tasks.json", "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (IOError, json.JSONDecodeError):
+                pass
+        # Данные по умолчанию
+        return {
+            "tasks": {
+                "Учёба": ["Прочитать статью", "Изучить главу книги", "Решить 5 задач по математике", "Подготовиться к экзамену"],
+                "Спорт": ["Сделать зарядку", "Пробежать 3 км", "Позаниматься йогой 30 минут", "Отжаться 50 раз"],
+                "Работа": ["Проверить почту", "Составить отчёт", "Провести совещание", "Ответить на запросы клиентов"]
+            },
+            "history": []
+        }
 
-            # Добавление в историю
-            self.history.append({
-                "from": from_curr,
-                "to": to_curr,
-                "amount": amount,
-                "result": result
-            })
-            self.save_history()
-            self.update_history_table()
+    def save_data(self):
+        """Сохраняет данные в JSON-файл"""
+        with open("tasks.json", "w", encoding="utf-8") as f:
+            json.dump(self.tasks_data, f, ensure_ascii=False, indent=2)
 
-            messagebox.showinfo("Результат", f"{amount} {from_curr} = {result:.2f} {to_curr}")
+    def generate_task(self):
+        """Генерирует случайную задачу"""
+        filter_type = self.filter_var.get()
+        available_tasks = []
 
-        except ValueError:
-            messagebox.showerror("Ошибка", "Введите корректную сумму")
+        if filter_type == "Все":
+            for task_list in self.tasks_data["tasks"].values():
+                available_tasks.extend(task_list)
+        else:
+            available_tasks = self.tasks_data["tasks"].get(filter_type, [])
 
-    def get_exchange_rate(self, from_curr, to_curr):
-        url = f"https://api.exchangerate-api.com/v4/latest/{from_curr}"
-        try:
-            response = requests.get(url)
-            data = response.json()
-            if to_curr in data["rates"]:
-                return data["rates"][to_curr]
-            else:
-                messagebox.showerror("Ошибка", "Валюта не найдена")
-                return None
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка API: {e}")
-            return None
+        if not available_tasks:
+            messagebox.showwarning("Предупреждение", "Нет задач для выбранного типа")
+            return
 
-    def save_history(self):
-        with open("history.json", "w", encoding="utf-8") as f:
-            json.dump(self.history, f, ensure_ascii=False, indent=2)
+        selected_task = random.choice(available_tasks)
+        task_type = self.get_task_type(selected_task)
 
-    def load_history(self):
-        if os.path.exists("history.json"):
-            with open("history.json", "r", encoding="utf-8") as f:
-                return json.load(f)
-        return []
+        # Отображение задачи
+        self.current_task_label.config(text=f"{selected_task} ({task_type})")
 
-    def update_history_table(self):
-        for item in self.history_tree.get_children():
-            self.history_tree.delete(item)
-        for record in self.history:
-            self.history_tree.insert("", "end", values=(
-                record["from"],
-                record["to"],
-                f"{record['amount']:.2f}",
-                f"{record['result']:.2f}"
-            ))
+        # Добавление в историю
+        self.history.append({
+            "task": selected_task,
+            "type": task_type
+        })
+        self.tasks_data["history"] = self.history
+        self.save_data()
+        self.update_history_list()
+
+    def get_task_type(self, task):
+        """Определяет тип задачи по её тексту"""
+        for task_type, tasks in self.tasks_data["tasks"].items():
+            if task in tasks:
+                return task_type
+        return "Другое"
+
+    def add_task(self):
+        """Добавляет новую задачу"""
+        task_text = simpledialog.askstring("Новая задача", "Введите текст задачи:")
+        if not task_text or not task_text.strip():
+            messagebox.showerror("Ошибка", "Задача не может быть пустой")
+            return
+
+        task_type = simpledialog.askstring(
+            "Тип задачи",
+            "Выберите тип задачи (Учёба, Спорт, Работа):",
+            initialvalue="Учёба"
+        )
+        if task_type not in ["Учёба", "Спорт", "Работа"]:
+            messagebox.showerror("Ошибка", "Неверный тип задачи. Допустимые значения: Учёба, Спорт, Работа")
+            return
+
+        # Добавляем задачу в список
+        if task_type not in self.tasks_data["tasks"]:
+            self.tasks_data["tasks"][task_type] = []
+        self.tasks_data["tasks"][task_type].append(task_text.strip())
+        self.save_data()
+        messagebox.showinfo("Успех", f"Задача '{task_text}' добавлена в категорию '{task_type}'!")
+
+    def clear_history(self):
+        """Очищает историю задач"""
+        self.history = []
+        self.tasks_data["history"] = []
+        self.save_data()
+        self.update_history_list()
+        messagebox.showinfo("Успех", "История очищена!")
+
+    def apply_filter(self, event=None):
+        """Применяет фильтр к истории"""
+        self.update_history_list()
+
+    def update_history_list(self):
+        """Обновляет отображение истории"""
+        self.history_listbox.delete(0, tk.END)
+        filter_type = self.filter_var.get()
+
+        for record in reversed(self.history):
+            if filter_type == "Все" or record["type"] == filter_type:
+                self.history_listbox.insert(tk.END, f"{record['task']} ({record['type']})")
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = CurrencyConverter(root)
+    app = RandomTaskGenerator(root)
     root.mainloop()
 
+
+---
+
+## Обновления в коде (`main.py`)
+
+В метод `add_task` добавлены проверки корректности типа задачи:
+
+```python
+def add_task(self):
+    """Добавляет новую задачу"""
+    task_text = simpledialog.askstring("Новая задача", "Введите текст задачи:")
+    if not task_text or not task_text.strip():
+        messagebox.showerror("Ошибка", "Задача не может быть пустой")
+        return
+
+    task_type = simpledialog.askstring(
+        "Тип задачи",
+        "Выберите тип задачи (Учёба, Спорт, Работа):",
+        initialvalue="Учёба"
+    )
+    if task_type not in ["Учёба", "Спорт", "Работа"]:
+        messagebox.showerror("Ошибка", "Неверный тип задачи. Допустимые значения: Учёба, Спорт, Работа")
+        return
+
+    # Добавляем задачу в список
+    if task_type not in self.tasks_data["tasks"]:
+        self.tasks_data["tasks"][task_type] = []
+    self.tasks_data["tasks"][task_type].append(task_text.strip())
+    self.save_data()
+    messagebox.showinfo("Успех", f"Задача '{task_text}' добавлена в категорию '{task_type}'!")
+
+# Стандартные библиотеки Python — не требуют установки
+# tk

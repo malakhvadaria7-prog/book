@@ -50,7 +50,21 @@ class RandomTaskGenerator:
 
         self.history_listbox.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+ # Чекбоксы типов символов
+        ttk.Label(self.root, text="Типы символов:").pack(pady=(15, 5))
 
+        checkbox_frame = ttk.Frame(self.root)
+        checkbox_frame.pack(pady=5)
+
+        self.uppercase_var = tk.BooleanVar(value=True)
+        self.lowercase_var = tk.BooleanVar(value=True)
+        self.digits_var = tk.BooleanVar(value=True)
+        self.special_var = tk.BooleanVar(value=False)
+
+        ttk.Checkbutton(checkbox_frame, text="Заглавные буквы (A‑Z)", variable=self.uppercase_var).pack(anchor=tk.W)
+        ttk.Checkbutton(checkbox_frame, text="Строчные буквы (a‑z)", variable=self.lowercase_var).pack(anchor=tk.W)
+        ttk.Checkbutton(checkbox_frame, text="Цифры (0‑9)", variable=self.digits_var).pack(anchor=tk.W)
+        ttk.Checkbutton(checkbox_frame, text="Специальные символы (!@#$%)", variable=self.special_var).pack(anchor=tk.W)
         # Кнопки управления
         button_frame = ttk.Frame(self.root)
         button_frame.pack(pady=10)
@@ -60,7 +74,114 @@ class RandomTaskGenerator:
 
         # Обновление списка истории
         self.update_history_list()
+ # Таблица истории
+        ttk.Label(self.root, text="История паролей:").pack(pady=(15, 5))
 
+        history_frame = ttk.Frame(self.root)
+        history_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        columns = ("Length", "Characters", "Password")
+        self.history_tree = ttk.Treeview(history_frame, columns=columns, show="headings", height=8)
+
+        for col in columns:
+            self.history_tree.heading(col, text=col)
+            self.history_tree.column(col, width=150)
+
+        scrollbar = ttk.Scrollbar(history_frame, orient="vertical", command=self.history_tree.yview)
+        self.history_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.history_tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Кнопки управления
+        button_frame = ttk.Frame(self.root)
+        button_frame.pack(pady=10)
+
+        ttk.Button(button_frame, text="Копировать пароль", command=self.copy_password).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Очистить историю", command=self.clear_history).pack(side=tk.LEFT, padx=5)
+
+        self.update_history_table()
+
+    def update_length_label(self, event=None):
+        """Обновляет отображение длины пароля"""
+        self.length_label.config(text=str(self.length_var.get()))
+
+    def generate_password(self):
+        """Генерирует пароль с валидацией"""
+        try:
+            # Проверка длины
+            length = self.length_var.get()
+            if length < 8 or length > 32:
+                messagebox.showerror("Ошибка", "Длина пароля должна быть от 8 до 32 символов")
+                return
+
+            # Проверка выбора типов символов
+            char_types = [
+                self.uppercase_var.get(),
+                self.lowercase_var.get(),
+                self.digits_var.get(),
+                self.special_var.get()
+            ]
+            if not any(char_types):
+                messagebox.showerror("Ошибка", "Выберите хотя бы один тип символов")
+                return
+
+            # Формирование набора символов
+            chars = ""
+            if self.uppercase_var.get():
+                chars += string.ascii_uppercase
+            if self.lowercase_var.get():
+                chars += string.ascii_lowercase
+            if self.digits_var.get():
+                chars += string.digits
+            if self.special_var.get():
+                chars += "!@#$%^&*"
+
+            if not chars:
+                messagebox.showerror("Ошибка", "Не выбран ни один тип символов для генерации")
+                return
+
+            # Генерация пароля
+            password = ''.join(secrets.choice(chars) for _ in range(length))
+
+            # Отображение пароля
+            self.password_entry.delete(0, tk.END)
+            self.password_entry.insert(0, password)
+
+            # Добавление в историю
+            history_entry = {
+                "length": length,
+                "characters": self.get_char_types_description(),
+                "password": password
+            }
+            self.history.append(history_entry)
+            self.save_history()
+            self.update_history_table()
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Произошла ошибка при генерации пароля: {str(e)}")
+    def get_char_types_description(self):
+        """Возвращает описание выбранных типов символов"""
+        types = []
+        if self.uppercase_var.get():
+            types.append("A‑Z")
+        if self.lowercase_var.get():
+            types.append("a‑z")
+        if self.digits_var.get():
+            types.append("0‑9")
+        if self.special_var.get():
+            types.append("!@#$%")
+        return ", ".join(types)
+    def copy_password(self):
+        """Копирует текущий пароль в буфер обмена"""
+        password = self.password_entry.get()
+        if password:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(password)
+            messagebox.showinfo("Успех", "Пароль скопирован в буфер обмена")
+        else:
+            messagebox.showwarning("Предупреждение", "Сначала сгенерируйте пароль")
+    def clear_history(self)
     def load_data(self):
         """Загружает данные из JSON-файла"""
         if os.path.exists("tasks.json"):
